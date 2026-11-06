@@ -5,12 +5,14 @@ services:
     image: jhaals/yopass:${YOPASS_VERSION:?YOPASS_VERSION manquant}
     environment:
       MEMCACHED: memcached:11211
+      METRICS_PORT: 9090
     labels:
       - "yopass.expose=true"
       - "traefik.enable=true"
       - "traefik.docker.network=yopass_internal"
       - "traefik.http.routers.yopass.rule=Host(`${YOPASS_DOMAIN:?YOPASS_DOMAIN manquant}`)"
       - "traefik.http.routers.yopass.entrypoints=web"
+      - "traefik.http.routers.yopass.service=yopass"
       - "traefik.http.routers.yopass.middlewares=yopass-inflight,yopass-headers"
       - "traefik.http.middlewares.yopass-inflight.inflightreq.amount=100"
       - "traefik.http.middlewares.yopass-headers.headers.stsSeconds=31536000"
@@ -20,6 +22,10 @@ services:
       - "traefik.http.middlewares.yopass-headers.headers.contentTypeNosniff=true"
       - "traefik.http.middlewares.yopass-headers.headers.referrerPolicy=no-referrer"
       - "traefik.http.services.yopass.loadbalancer.server.port=1337"
+      - "traefik.http.routers.yopass-metrics.rule=Path(`/metrics`)"
+      - "traefik.http.routers.yopass-metrics.entrypoints=metrics"
+      - "traefik.http.routers.yopass-metrics.service=yopass-metrics"
+      - "traefik.http.services.yopass-metrics.loadbalancer.server.port=9090"
     depends_on:
       - memcached
     networks: [internal]
@@ -41,8 +47,11 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.transport.respondingTimeouts.readTimeout=300s"
       - "--entrypoints.web.transport.respondingTimeouts.writeTimeout=300s"
+      - "--entrypoints.metrics.address=:9180"
       - "--ping=true"
       - "--log.level=INFO"
+    ports:
+      - "${METRICS_BIND_IP:?METRICS_BIND_IP manquant}:9180:9180"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
