@@ -1,0 +1,70 @@
+name: yopass
+
+services:
+  yopass:
+    image: jhaals/yopass:${YOPASS_VERSION:?YOPASS_VERSION manquant}
+    environment:
+      MEMCACHED: memcached:11211
+    labels:
+      - "yopass.expose=true"
+      - "traefik.enable=true"
+      - "traefik.docker.network=yopass_internal"
+      - "traefik.http.routers.yopass.rule=Host(`${YOPASS_DOMAIN:?YOPASS_DOMAIN manquant}`)"
+      - "traefik.http.routers.yopass.entrypoints=web"
+      - "traefik.http.routers.yopass.middlewares=yopass-inflight,yopass-headers"
+      - "traefik.http.middlewares.yopass-inflight.inflightreq.amount=100"
+      - "traefik.http.middlewares.yopass-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.yopass-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.yopass-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.yopass-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.yopass-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.yopass-headers.headers.referrerPolicy=no-referrer"
+      - "traefik.http.services.yopass.loadbalancer.server.port=1337"
+    depends_on:
+      - memcached
+    networks: [internal]
+    restart: unless-stopped
+
+  memcached:
+    image: memcached:${MEMCACHED_VERSION:?MEMCACHED_VERSION manquant}
+    command: ["-m", "64"]
+    networks: [internal]
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:${TRAEFIK_VERSION:?TRAEFIK_VERSION manquant}
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.constraints=Label(`yopass.expose`,`true`)"
+      - "--providers.docker.network=yopass_internal"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.transport.respondingTimeouts.readTimeout=300s"
+      - "--entrypoints.web.transport.respondingTimeouts.writeTimeout=300s"
+      - "--ping=true"
+      - "--log.level=INFO"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks: [internal, tunnel]
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:?CLOUDFLARED_VERSION manquant}
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN manquant}
+    depends_on:
+      traefik:
+        condition: service_healthy
+    networks: [tunnel]
+    restart: unless-stopped
+
+networks:
+  internal:
+    internal: true
+  tunnel:
